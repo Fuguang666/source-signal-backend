@@ -1,0 +1,104 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /api
+
+spring:
+  application:
+    name: source-signal
+  profiles:
+    active: dev
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+# ===== 数据源（dev 用 H2，prod 用 MySQL） =====
+  datasource:
+    driver-class-name: org.h2.Driver
+    url: jdbc:h2:mem:sourcesignal;DB_CLOSE_DELAY=-1;MODE=MySQL
+    username: sa
+    password:
+  h2:
+    console:
+      enabled: true
+      path: /h2-console
+  jpa:
+    hibernate:
+      ddl-auto: update
+    show-sql: false
+    properties:
+      hibernate:
+        format_sql: true
+        dialect: org.hibernate.dialect.H2Dialect
+
+# ===== Redis =====
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3000ms
+
+# ===== 邮件 =====
+  mail:
+    host: smtp.example.com
+    port: 587
+    username: noreply@sourcesignal.io
+    password: ${MAIL_PASSWORD:}
+    properties:
+      mail:
+        smtp:
+          auth: true
+          starttls:
+            enable: true
+
+# ===== JWT 配置 =====
+jwt:
+  secret: ${JWT_SECRET:SourceSignal-Default-Secret-Key-2024-Please-Change-In-Production-Environment}
+  expiration: 86400000        # 24 小时（毫秒）
+  refresh-expiration: 604800000  # 7 天
+
+# ===== 业务配置 =====
+app:
+  # 试用版规则
+  trial:
+    days: 7
+    daily-leads: 3
+    max-categories: 2
+    max-regions: 1
+    history-days: 7
+  # 付费版规则
+  paid:
+    history-days: 30
+  # Reddit 采集（第三方官方授权 API）
+  reddit:
+    base-url: https://api.redditapis.com
+    api-key: ${REDDIT_API_KEY:}
+    subreddits: ChinaSourcing,Business_China,ecommerce,AmazonSeller
+    poll-interval-seconds: 300
+  # AI 打标（火山引擎方舟 - 豆包）
+  ai:
+    endpoint: https://ark.cn-beijing.volces.com/api/v3/chat/completions
+    api-key: ${AI_API_KEY:}
+    model: ${AI_MODEL:deepseek-v4-1-flash-260910}
+    timeout-seconds: 30
+  # 推送
+  push:
+    lead-timeout-minutes: 5    # 新帖发布后 5 分钟内推送
+
+# ===== SpringDoc / Swagger =====
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+
+# ===== 日志 =====
+logging:
+  level:
+    root: INFO
+    com.sourcesignal: DEBUG
+    org.springframework.security: WARN
