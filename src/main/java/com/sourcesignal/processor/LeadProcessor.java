@@ -1,12 +1,13 @@
 package com.sourcesignal.processor;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sourcesignal.collector.RedditCollector;
 import com.sourcesignal.entity.Lead;
 import com.sourcesignal.enums.LeadGrade;
 import com.sourcesignal.enums.NeedType;
 import com.sourcesignal.enums.OrderScale;
 import com.sourcesignal.enums.Region;
-import com.sourcesignal.repository.LeadRepository;
+import com.sourcesignal.mapper.LeadMapper;
 import com.sourcesignal.service.PushService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,7 +27,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 @RequiredArgsConstructor
 public class LeadProcessor {
 
-    private final LeadRepository leadRepository;
+    private final LeadMapper leadMapper;
     private final AiTaggingService aiTaggingService;
     private final PushService pushService;
 
@@ -69,7 +70,9 @@ public class LeadProcessor {
                 }
 
                 // 3. 去重（同一 externalId 不重复入库）
-                if (leadRepository.existsByExternalId(rawPost.externalId())) {
+                Long existsCount = leadMapper.selectCount(new LambdaQueryWrapper<Lead>()
+                        .eq(Lead::getExternalId, rawPost.externalId()));
+                if (existsCount != null && existsCount > 0) {
                     filteredCount.incrementAndGet();
                     continue;
                 }
@@ -83,7 +86,7 @@ public class LeadProcessor {
 
                 // 5. 构建 Lead 实体并入库
                 Lead lead = buildLead(rawPost, taggingResult);
-                leadRepository.save(lead);
+                leadMapper.insert(lead);
                 savedCount.incrementAndGet();
 
                 log.info("线索入库: grade={}, category={}, score={}, title={}",
@@ -123,6 +126,7 @@ public class LeadProcessor {
                 .needType(aiTaggingService.toNeedType(result.getNeedType()))
                 .region(aiTaggingService.toRegion(result.getRegion()))
                 .postedAt(rawPost.postedAt())
+                .collectedAt(LocalDateTime.now())
                 .taggedAt(LocalDateTime.now())
                 .reviewed(false)
                 .build();

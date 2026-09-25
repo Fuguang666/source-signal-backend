@@ -1,57 +1,54 @@
 package com.sourcesignal.entity;
 
-import jakarta.persistence.*;
+import com.baomidou.mybatisplus.annotation.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
 /**
  * 用户实体
+ * 表名：sys_user
  */
-@Entity
-@Table(name = "sys_user", indexes = {
-        @Index(name = "idx_user_username", columnList = "username", unique = true)
-})
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("sys_user")
 public class User {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    /** 用户名（登录账号） */
-    @Column(nullable = false, length = 64, unique = true)
+    /** 用户名（登录账号，唯一） */
+    @TableField("username")
     private String username;
 
-    /** 邮箱（可选，用于后续通知/找回密码） */
-    @Column(length = 128)
-    private String email;
-
     /** 密码（BCrypt 加密） */
-    @Column(nullable = false, length = 128)
+    @TableField("password")
     private String password;
 
+    /** 邮箱（可选） */
+    @TableField("email")
+    private String email;
+
     /** 公司 / 团队名称 */
-    @Column(length = 128)
+    @TableField("company")
     private String company;
 
     /** 账号是否启用 */
-    @Column(nullable = false)
+    @TableField("enabled")
     @Builder.Default
     private Boolean enabled = true;
 
     /** 最后登录时间 */
+    @TableField("last_login_at")
     private LocalDateTime lastLoginAt;
 
-    @CreationTimestamp
-    @Column(updatable = false)
+    /** 创建时间 */
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
+    /** 更新时间 */
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

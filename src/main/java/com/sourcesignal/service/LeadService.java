@@ -1,5 +1,8 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sourcesignal.common.BusinessException;
 import com.sourcesignal.common.PageResult;
 import com.sourcesignal.common.ResultCode;
@@ -7,14 +10,11 @@ import com.sourcesignal.dto.LeadDTO;
 import com.sourcesignal.dto.LeadQueryRequest;
 import com.sourcesignal.entity.Lead;
 import com.sourcesignal.entity.UserLead;
-import com.sourcesignal.repository.LeadRepository;
-import com.sourcesignal.repository.UserLeadRepository;
+import com.sourcesignal.mapper.LeadMapper;
+import com.sourcesignal.mapper.UserLeadMapper;
 import com.sourcesignal.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -30,8 +30,8 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class LeadService {
 
-    private final LeadRepository leadRepository;
-    private final UserLeadRepository userLeadRepository;
+    private final LeadMapper leadMapper;
+    private final UserLeadMapper userLeadMapper;
     private final CurrentUser currentUser;
     private final PermissionService permissionService;
 
@@ -40,31 +40,27 @@ public class LeadService {
      */
     public PageResult<LeadDTO> queryLeads(LeadQueryRequest request) {
         Long userId = currentUser.getCurrentUserId();
-        // 校验订阅状态
         permissionService.requireActiveSubscription();
 
-        int page = Math.max(1, request.getPage()) - 1;
+        int pageNum = Math.max(1, request.getPage());
         int size = Math.min(100, Math.max(1, request.getSize()));
-        Pageable pageable = PageRequest.of(page, size);
-
-        // 根据订阅状态确定历史可见范围（试用版 7 天，付费版 30 天）
         LocalDateTime since = permissionService.getHistorySince();
 
-        Page<Lead> leadPage = leadRepository.findByFilters(
-                request.getGrade(),
-                request.getCategory(),
-                request.getRegion(),
-                request.getNeedType(),
-                request.getKeyword(),
-                since,
-                pageable
-        );
+        // 枚举转字符串（MyBatis-Plus 自定义 SQL 用字符串）
+        String gradeStr = request.getGrade() != null ? request.getGrade().name() : null;
+        String regionStr = request.getRegion() != null ? request.getRegion().name() : null;
+        String needTypeStr = request.getNeedType() != null ? request.getNeedType().name() : null;
 
-        List<LeadDTO> dtoList = leadPage.getContent().stream()
+        Page<Lead> page = new Page<>(pageNum, size);
+        IPage<Lead> leadPage = leadMapper.selectPageByFilters(page,
+                gradeStr, request.getCategory(), regionStr, needTypeStr,
+                request.getKeyword(), since);
+
+        List<LeadDTO> dtoList = leadPage.getRecords().stream()
                 .map(lead -> toLeadDTO(lead, userId))
                 .collect(Collectors.toList());
 
-        return PageResult.of(dtoList, leadPage.getTotalElements(), request.getPage(), size);
+        return PageResult.of(dtoList, leadPage.getTotal(), pageNum, size);
     }
 
     /**
@@ -74,20 +70,30 @@ public class LeadService {
     public LeadDTO getLeadDetail(Long leadId) {
         Long userId = currentUser.getCurrentUserId();
         permissionService.requireActiveSubscription();
-        Lead lead = leadRepository.findById(leadId)
-                .orElseThrow(() -> new BusinessException(ResultCode.LEAD_NOT_FOUND));
+        Lead lead = leadMapper.selectById(leadId);
+        if (lead == null) {
+            throw new BusinessException(ResultCode.LEAD_NOT_FOUND);
+        }
 
         // 自动标记为已读
-        UserLead userLead = userLeadRepository.findByUserIdAndLeadId(userId, leadId)
-                .orElseGet(() -> UserLead.builder()
-                        .userId(userId)
-                        .leadId(leadId)
-                        .marked(false)
-                        .read(false)
-                        .build());
-        if (!Boolean.TRUE.equals(userLead.getRead())) {
-            userLead.setRead(true);
-            userLeadRepository.save(userLead);
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, leadId));
+        if (userLead == null) {
+            userLead = UserLead.builder()
+                    .userId(userId)
+                    .leadId(leadId)
+                    .marked(false)
+                    .isRead(false)
+                    .build();
+        }
+        if (!Boolean.TRUE.equals(userLead.getIsRead())) {
+            userLead.setIsRead(true);
+            if (userLead.getId() == null) {
+                userLeadMapper.insert(userLead);
+            } else {
+                userLeadMapper.updateById(userLead);
+            }
         }
 
         return toLeadDTO(lead, userId);
@@ -99,19 +105,26 @@ public class LeadService {
     @Transactional
     public LeadDTO toggleMark(Long leadId) {
         Long userId = currentUser.getCurrentUserId();
-        Lead lead = leadRepository.findById(leadId)
-                .orElseThrow(() -> new BusinessException(ResultCode.LEAD_NOT_FOUND));
+        Lead lead = leadMapper.selectById(leadId);
+        if (lead == null) {
+            throw new BusinessException(ResultCode.LEAD_NOT_FOUND);
+        }
 
-        UserLead userLead = userLeadRepository.findByUserIdAndLeadId(userId, leadId)
-                .orElseGet(() -> UserLead.builder()
-                        .userId(userId)
-                        .leadId(leadId)
-                        .marked(false)
-                        .read(true)
-                        .build());
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, leadId));
+        if (userLead == null) {
+            userLead = UserLead.builder()
+                    .userId(userId)
+                    .leadId(leadId)
+                    .marked(false)
+                    .isRead(true)
+                    .build();
+            userLeadMapper.insert(userLead);
+        }
 
         userLead.setMarked(!Boolean.TRUE.equals(userLead.getMarked()));
-        userLeadRepository.save(userLead);
+        userLeadMapper.updateById(userLead);
 
         return toLeadDTO(lead, userId);
     }
@@ -122,19 +135,26 @@ public class LeadService {
     @Transactional
     public LeadDTO saveNote(Long leadId, String note) {
         Long userId = currentUser.getCurrentUserId();
-        Lead lead = leadRepository.findById(leadId)
-                .orElseThrow(() -> new BusinessException(ResultCode.LEAD_NOT_FOUND));
+        Lead lead = leadMapper.selectById(leadId);
+        if (lead == null) {
+            throw new BusinessException(ResultCode.LEAD_NOT_FOUND);
+        }
 
-        UserLead userLead = userLeadRepository.findByUserIdAndLeadId(userId, leadId)
-                .orElseGet(() -> UserLead.builder()
-                        .userId(userId)
-                        .leadId(leadId)
-                        .marked(false)
-                        .read(true)
-                        .build());
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, leadId));
+        if (userLead == null) {
+            userLead = UserLead.builder()
+                    .userId(userId)
+                    .leadId(leadId)
+                    .marked(false)
+                    .isRead(true)
+                    .build();
+            userLeadMapper.insert(userLead);
+        }
 
         userLead.setNote(note);
-        userLeadRepository.save(userLead);
+        userLeadMapper.updateById(userLead);
 
         return toLeadDTO(lead, userId);
     }
@@ -144,9 +164,11 @@ public class LeadService {
      */
     public List<LeadDTO> getMarkedLeads() {
         Long userId = currentUser.getCurrentUserId();
-        List<UserLead> markedList = userLeadRepository.findByUserIdAndMarkedTrue(userId);
+        List<UserLead> markedList = userLeadMapper.selectList(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getMarked, true));
         return markedList.stream()
-                .map(ul -> leadRepository.findById(ul.getLeadId()).orElse(null))
+                .map(ul -> leadMapper.selectById(ul.getLeadId()))
                 .filter(java.util.Objects::nonNull)
                 .map(lead -> toLeadDTO(lead, userId))
                 .collect(Collectors.toList());
@@ -171,12 +193,14 @@ public class LeadService {
                 .isRead(false);
 
         // 填充用户个性化数据
-        userLeadRepository.findByUserIdAndLeadId(userId, lead.getId())
-                .ifPresent(ul -> {
-                    builder.marked(ul.getMarked());
-                    builder.note(ul.getNote());
-                    builder.isRead(ul.getRead());
-                });
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, lead.getId()));
+        if (userLead != null) {
+            builder.marked(userLead.getMarked());
+            builder.note(userLead.getNote());
+            builder.isRead(userLead.getIsRead());
+        }
 
         return builder.build();
     }

@@ -1,75 +1,76 @@
 package com.sourcesignal.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.sourcesignal.enums.PlanType;
 import com.sourcesignal.enums.SubscriptionStatus;
-import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
  * 订阅实体
+ * 表名：subscription
  * 一个用户对应一条订阅记录，状态随时间流转
  */
-@Entity
-@Table(name = "subscription", indexes = {
-        @Index(name = "idx_sub_user", columnList = "user_id"),
-        @Index(name = "idx_sub_status", columnList = "status")
-})
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("subscription")
 public class Subscription {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    /** 用户ID */
+    @TableField("user_id")
     private Long userId;
 
     /** 套餐类型：TRIAL / PAID */
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    private PlanType planType;
+    @TableField("plan_type")
+    @Builder.Default
+    private PlanType planType = PlanType.TRIAL;
 
     /** 订阅状态：TRIAL / ACTIVE / EXPIRED */
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
-    private SubscriptionStatus status;
+    @TableField("status")
+    @Builder.Default
+    private SubscriptionStatus status = SubscriptionStatus.TRIAL;
 
     /** 试用开始日期 */
+    @TableField("trial_start_date")
     private LocalDate trialStartDate;
 
     /** 试用到期日期 */
+    @TableField("trial_end_date")
     private LocalDate trialEndDate;
 
     /** 付费开始日期 */
+    @TableField("paid_start_date")
     private LocalDate paidStartDate;
 
     /** 付费到期日期 */
+    @TableField("paid_end_date")
     private LocalDate paidEndDate;
 
     /** 计费周期：MONTHLY / YEARLY */
-    @Column(length = 16)
+    @TableField("billing_cycle")
     private String billingCycle;
 
-    /** 今日已推送样例线索数（试用版限流用） */
-    @Column(nullable = false)
+    /** 今日已查看样例线索数（试用版限流用） */
+    @TableField("today_sample_count")
     @Builder.Default
     private Integer todaySampleCount = 0;
 
-    /** 样例计数重置日期 */
+    /** 样例计数重置时间 */
+    @TableField("sample_reset_at")
     private LocalDateTime sampleResetAt;
 
-    @CreationTimestamp
-    @Column(updatable = false)
+    /** 创建时间 */
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
+    /** 更新时间 */
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

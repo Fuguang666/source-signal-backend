@@ -1,5 +1,6 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sourcesignal.common.BusinessException;
 import com.sourcesignal.common.ResultCode;
 import com.sourcesignal.dto.AuthResponse;
@@ -12,10 +13,10 @@ import com.sourcesignal.entity.UserSubscriptionConfig;
 import com.sourcesignal.enums.PlanType;
 import com.sourcesignal.enums.PushChannelType;
 import com.sourcesignal.enums.SubscriptionStatus;
-import com.sourcesignal.repository.SubscriptionRepository;
-import com.sourcesignal.repository.UserPushChannelRepository;
-import com.sourcesignal.repository.UserRepository;
-import com.sourcesignal.repository.UserSubscriptionConfigRepository;
+import com.sourcesignal.mapper.SubscriptionMapper;
+import com.sourcesignal.mapper.UserMapper;
+import com.sourcesignal.mapper.UserPushChannelMapper;
+import com.sourcesignal.mapper.UserSubscriptionConfigMapper;
 import com.sourcesignal.security.JwtUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,10 +36,10 @@ import java.time.LocalDateTime;
 @RequiredArgsConstructor
 public class AuthService {
 
-    private final UserRepository userRepository;
-    private final SubscriptionRepository subscriptionRepository;
-    private final UserSubscriptionConfigRepository configRepository;
-    private final UserPushChannelRepository pushChannelRepository;
+    private final UserMapper userMapper;
+    private final SubscriptionMapper subscriptionMapper;
+    private final UserSubscriptionConfigMapper configMapper;
+    private final UserPushChannelMapper pushChannelMapper;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
     private final TokenBlacklistService tokenBlacklistService;
@@ -53,7 +54,9 @@ public class AuthService {
     @Transactional
     public AuthResponse register(RegisterRequest request) {
         // 检查用户名是否已注册
-        if (userRepository.existsByUsername(request.getUsername())) {
+        Long count = userMapper.selectCount(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, request.getUsername()));
+        if (count != null && count > 0) {
             throw new BusinessException(ResultCode.USER_ALREADY_EXISTS);
         }
 
@@ -65,7 +68,7 @@ public class AuthService {
                 .company(request.getCompany())
                 .enabled(true)
                 .build();
-        user = userRepository.save(user);
+        userMapper.insert(user);
 
         // 创建试用订阅
         LocalDate now = LocalDate.now();
@@ -77,13 +80,13 @@ public class AuthService {
                 .trialEndDate(now.plusDays(trialDays))
                 .todaySampleCount(0)
                 .build();
-        subscriptionRepository.save(subscription);
+        subscriptionMapper.insert(subscription);
 
         // 初始化订阅配置
         UserSubscriptionConfig config = UserSubscriptionConfig.builder()
                 .userId(user.getId())
                 .build();
-        configRepository.save(config);
+        configMapper.insert(config);
 
         // 默认启用邮件推送渠道记录（实际推送功能暂不对接）
         UserPushChannel mailChannel = UserPushChannel.builder()
@@ -91,7 +94,7 @@ public class AuthService {
                 .channel(PushChannelType.EMAIL)
                 .enabled(true)
                 .build();
-        pushChannelRepository.save(mailChannel);
+        pushChannelMapper.insert(mailChannel);
 
         log.info("用户注册成功: userId={}, username={}", user.getId(), user.getUsername());
 
@@ -102,8 +105,11 @@ public class AuthService {
      * 用户登录（用户名密码）
      */
     public AuthResponse login(LoginRequest request) {
-        User user = userRepository.findByUsername(request.getUsername())
-                .orElseThrow(() -> new BusinessException(ResultCode.USER_NOT_FOUND));
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getUsername, request.getUsername()));
+        if (user == null) {
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        }
 
         if (!passwordEncoder.matches(request.getPassword(), user.getPassword())) {
             throw new BusinessException(ResultCode.USER_PASSWORD_ERROR);
@@ -115,10 +121,13 @@ public class AuthService {
 
         // 更新最后登录时间
         user.setLastLoginAt(LocalDateTime.now());
-        userRepository.save(user);
+        userMapper.updateById(user);
 
-        Subscription subscription = subscriptionRepository.findByUserId(user.getId())
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, user.getId()));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
 
         log.info("用户登录成功: userId={}, username={}", user.getId(), user.getUsername());
 
@@ -133,13 +142,18 @@ public class AuthService {
             throw new BusinessException(401, "刷新令牌无效或已过期");
         }
         Long userId = jwtUtil.getUserIdFromToken(refreshToken);
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.USER_NOT_FOUND));
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        }
         if (!Boolean.TRUE.equals(user.getEnabled())) {
             throw new BusinessException(ResultCode.USER_DISABLED);
         }
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
         log.info("用户刷新令牌: userId={}", userId);
         return buildAuthResponse(user, subscription);
     }
@@ -157,13 +171,15 @@ public class AuthService {
      */
     @Transactional
     public void changePassword(Long userId, String oldPassword, String newPassword) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.USER_NOT_FOUND));
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new BusinessException(ResultCode.USER_NOT_FOUND);
+        }
         if (!passwordEncoder.matches(oldPassword, user.getPassword())) {
             throw new BusinessException(ResultCode.USER_PASSWORD_ERROR);
         }
         user.setPassword(passwordEncoder.encode(newPassword));
-        userRepository.save(user);
+        userMapper.updateById(user);
         log.info("用户修改密码成功: userId={}", userId);
     }
 

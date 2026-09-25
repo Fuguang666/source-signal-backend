@@ -1,13 +1,12 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sourcesignal.common.BusinessException;
 import com.sourcesignal.common.ResultCode;
 import com.sourcesignal.entity.Subscription;
-import com.sourcesignal.entity.User;
 import com.sourcesignal.enums.PlanType;
 import com.sourcesignal.enums.SubscriptionStatus;
-import com.sourcesignal.repository.SubscriptionRepository;
-import com.sourcesignal.repository.UserRepository;
+import com.sourcesignal.mapper.SubscriptionMapper;
 import com.sourcesignal.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -27,8 +26,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SubscriptionService {
 
-    private final SubscriptionRepository subscriptionRepository;
-    private final UserRepository userRepository;
+    private final SubscriptionMapper subscriptionMapper;
     private final CurrentUser currentUser;
 
     @Value("${app.trial.days}")
@@ -48,8 +46,11 @@ public class SubscriptionService {
      */
     public Map<String, Object> getSubscriptionInfo() {
         Long userId = currentUser.getCurrentUserId();
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
 
         Map<String, Object> result = new HashMap<>();
         result.put("planType", subscription.getPlanType());
@@ -72,7 +73,7 @@ public class SubscriptionService {
     }
 
     /**
-     * 获取套餐列表（用于订阅与套餐页展示）
+     * 获取套餐列表
      */
     public Map<String, Object> getPlans() {
         Map<String, Object> result = new HashMap<>();
@@ -115,10 +116,12 @@ public class SubscriptionService {
     @Transactional
     public Map<String, Object> upgrade(String billingCycle) {
         Long userId = currentUser.getCurrentUserId();
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
 
-        // TODO: 对接 Stripe / 微信支付，支付成功后再更新状态
         subscription.setPlanType(PlanType.PAID);
         subscription.setStatus(SubscriptionStatus.ACTIVE);
         subscription.setPaidStartDate(LocalDate.now());
@@ -130,7 +133,7 @@ public class SubscriptionService {
             subscription.setPaidEndDate(LocalDate.now().plusMonths(1));
         }
 
-        subscriptionRepository.save(subscription);
+        subscriptionMapper.updateById(subscription);
 
         log.info("用户升级付费版: userId={}, billingCycle={}", userId, billingCycle);
 
@@ -147,10 +150,12 @@ public class SubscriptionService {
     @Transactional
     public Map<String, Object> cancel() {
         Long userId = currentUser.getCurrentUserId();
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
 
-        // 取消后按当期剩余服务到期停止
         log.info("用户取消订阅: userId={}, paidEndDate={}", userId, subscription.getPaidEndDate());
 
         Map<String, Object> result = new HashMap<>();

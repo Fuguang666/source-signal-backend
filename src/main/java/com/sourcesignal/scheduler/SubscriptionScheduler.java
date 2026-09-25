@@ -2,7 +2,7 @@ package com.sourcesignal.scheduler;
 
 import com.sourcesignal.entity.Subscription;
 import com.sourcesignal.enums.SubscriptionStatus;
-import com.sourcesignal.repository.SubscriptionRepository;
+import com.sourcesignal.mapper.SubscriptionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -22,7 +22,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class SubscriptionScheduler {
 
-    private final SubscriptionRepository subscriptionRepository;
+    private final SubscriptionMapper subscriptionMapper;
 
     /**
      * 每天凌晨 1 点执行：试用到期检查 + 每日计数重置
@@ -35,14 +35,17 @@ public class SubscriptionScheduler {
         int expiredCount = 0;
         int resetCount = 0;
 
-        List<Subscription> allSubscriptions = subscriptionRepository.findAll();
+        List<Subscription> allSubscriptions = subscriptionMapper.selectList(null);
         for (Subscription subscription : allSubscriptions) {
+            boolean changed = false;
+
             // 1. 试用到期检查
             if (subscription.getStatus() == SubscriptionStatus.TRIAL
                     && subscription.getTrialEndDate() != null
                     && subscription.getTrialEndDate().isBefore(today)) {
                 subscription.setStatus(SubscriptionStatus.EXPIRED);
                 expiredCount++;
+                changed = true;
                 log.info("用户试用到期: userId={}, trialEndDate={}", subscription.getUserId(), subscription.getTrialEndDate());
             }
 
@@ -52,6 +55,7 @@ public class SubscriptionScheduler {
                     && subscription.getPaidEndDate().isBefore(today)) {
                 subscription.setStatus(SubscriptionStatus.EXPIRED);
                 expiredCount++;
+                changed = true;
                 log.info("用户付费到期: userId={}, paidEndDate={}", subscription.getUserId(), subscription.getPaidEndDate());
             }
 
@@ -60,11 +64,12 @@ public class SubscriptionScheduler {
                 subscription.setTodaySampleCount(0);
                 subscription.setSampleResetAt(java.time.LocalDateTime.now());
                 resetCount++;
+                changed = true;
             }
-        }
 
-        if (!allSubscriptions.isEmpty()) {
-            subscriptionRepository.saveAll(allSubscriptions);
+            if (changed) {
+                subscriptionMapper.updateById(subscription);
+            }
         }
 
         log.info("每日订阅检查完成: 到期={}, 计数重置={}, 总数={}", expiredCount, resetCount, allSubscriptions.size());

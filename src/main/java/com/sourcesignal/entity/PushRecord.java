@@ -1,58 +1,52 @@
 package com.sourcesignal.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.sourcesignal.enums.PushChannelType;
-import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
 
 import java.time.LocalDateTime;
 
 /**
  * 推送记录实体
+ * 表名：push_record
  * 记录每条线索向每个用户、每个渠道的推送情况
  */
-@Entity
-@Table(name = "push_record", indexes = {
-        @Index(name = "idx_push_user", columnList = "user_id"),
-        @Index(name = "idx_push_lead", columnList = "lead_id"),
-        @Index(name = "idx_push_channel", columnList = "channel"),
-        @Index(name = "idx_push_status", columnList = "status")
-})
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("push_record")
 public class PushRecord {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    /** 用户ID */
+    @TableField("user_id")
     private Long userId;
 
-    @Column(name = "lead_id", nullable = false)
+    /** 线索ID */
+    @TableField("lead_id")
     private Long leadId;
 
     /** 推送渠道 */
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @TableField("channel")
     private PushChannelType channel;
 
     /** 推送状态：PENDING / SUCCESS / FAILED */
-    @Column(nullable = false, length = 16)
+    @TableField("status")
     @Builder.Default
     private String status = "PENDING";
 
     /** 失败原因 */
-    @Column(length = 512)
+    @TableField("error_message")
     private String errorMessage;
 
     /** 推送耗时（毫秒） */
+    @TableField("duration_ms")
     private Long durationMs;
 
     /** 推送时间 */
-    @CreationTimestamp
-    @Column(updatable = false)
+    @TableField("pushed_at")
     private LocalDateTime pushedAt;
 }

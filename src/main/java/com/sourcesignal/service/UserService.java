@@ -1,9 +1,10 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sourcesignal.entity.User;
 import com.sourcesignal.entity.UserSubscriptionConfig;
-import com.sourcesignal.repository.UserRepository;
-import com.sourcesignal.repository.UserSubscriptionConfigRepository;
+import com.sourcesignal.mapper.UserMapper;
+import com.sourcesignal.mapper.UserSubscriptionConfigMapper;
 import com.sourcesignal.security.CurrentUser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,8 +26,8 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class UserService {
 
-    private final UserRepository userRepository;
-    private final UserSubscriptionConfigRepository configRepository;
+    private final UserMapper userMapper;
+    private final UserSubscriptionConfigMapper configMapper;
     private final CurrentUser currentUser;
     private final ObjectMapper objectMapper;
     private final PermissionService permissionService;
@@ -53,7 +54,7 @@ public class UserService {
     public Map<String, Object> updateProfile(String company) {
         User user = currentUser.getCurrentUser();
         user.setCompany(company);
-        userRepository.save(user);
+        userMapper.updateById(user);
         log.info("用户更新资料: userId={}", user.getId());
         return getProfile();
     }
@@ -63,8 +64,11 @@ public class UserService {
      */
     public Map<String, Object> getSubscriptionConfig() {
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId)
-                .orElseGet(() -> UserSubscriptionConfig.builder().userId(userId).build());
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
+        if (config == null) {
+            config = UserSubscriptionConfig.builder().userId(userId).build();
+        }
 
         Map<String, Object> result = new HashMap<>();
         try {
@@ -89,15 +93,18 @@ public class UserService {
      */
     @Transactional
     public Map<String, Object> updateCategories(List<String> categories) {
-        // 权限校验：试用版最多 2 个品类
         permissionService.checkCategoryLimit(categories);
 
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId)
-                .orElseGet(() -> UserSubscriptionConfig.builder().userId(userId).build());
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
+        if (config == null) {
+            config = UserSubscriptionConfig.builder().userId(userId).build();
+            configMapper.insert(config);
+        }
         try {
             config.setCategories(objectMapper.writeValueAsString(categories));
-            configRepository.save(config);
+            configMapper.updateById(config);
             log.info("用户更新监控品类: userId={}, categories={}", userId, categories);
         } catch (Exception e) {
             log.error("更新监控品类失败", e);
@@ -110,15 +117,18 @@ public class UserService {
      */
     @Transactional
     public Map<String, Object> updateRegions(List<String> regions) {
-        // 权限校验：试用版最多 1 个地区
         permissionService.checkRegionLimit(regions);
 
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId)
-                .orElseGet(() -> UserSubscriptionConfig.builder().userId(userId).build());
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
+        if (config == null) {
+            config = UserSubscriptionConfig.builder().userId(userId).build();
+            configMapper.insert(config);
+        }
         try {
             config.setRegions(objectMapper.writeValueAsString(regions));
-            configRepository.save(config);
+            configMapper.updateById(config);
             log.info("用户更新目标地区: userId={}, regions={}", userId, regions);
         } catch (Exception e) {
             log.error("更新目标地区失败", e);
@@ -131,15 +141,18 @@ public class UserService {
      */
     @Transactional
     public Map<String, Object> updateKeywords(List<String> keywords) {
-        // 权限校验：仅付费版可用
         permissionService.requirePaid("自定义关键词过滤");
 
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId)
-                .orElseGet(() -> UserSubscriptionConfig.builder().userId(userId).build());
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
+        if (config == null) {
+            config = UserSubscriptionConfig.builder().userId(userId).build();
+            configMapper.insert(config);
+        }
         try {
             config.setKeywords(objectMapper.writeValueAsString(keywords));
-            configRepository.save(config);
+            configMapper.updateById(config);
             log.info("用户更新关键词: userId={}", userId);
         } catch (Exception e) {
             log.error("更新关键词失败", e);

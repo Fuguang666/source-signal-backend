@@ -11,13 +11,6 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       connection-timeout: 30000
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    properties:
-      hibernate:
-        dialect: org.hibernate.dialect.MySQLDialect
   data:
     redis:
       host: ${REDIS_HOST:localhost}
@@ -29,7 +22,24 @@ spring:
           max-active: 16
           max-idle: 8
 
+# ===== MyBatis-Plus =====
+mybatis-plus:
+  mapper-locations: classpath*:/mapper/**/*.xml
+  type-aliases-package: com.sourcesignal.entity
+  configuration:
+    map-underscore-to-camel-case: true
+    cache-enabled: false
+  global-config:
+    db-config:
+      id-type: auto
+      table-underline: true
+
 logging:
   level:
     root: WARN
     com.sourcesignal: INFO
+
+# ===== 应用配置 =====
+app:
+  reddit:
+    scheduler-enabled: false  # 测试期间禁用自动采集，使用已有数据

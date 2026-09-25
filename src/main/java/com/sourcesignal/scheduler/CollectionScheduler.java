@@ -27,6 +27,9 @@ public class CollectionScheduler {
     @Value("${app.reddit.poll-interval-seconds:300}")
     private int pollIntervalSeconds;
 
+    @Value("${app.reddit.scheduler-enabled:true}")
+    private boolean schedulerEnabled;
+
     /** 采集运行状态（防止并发执行） */
     private final AtomicBoolean running = new AtomicBoolean(false);
 
@@ -46,6 +49,10 @@ public class CollectionScheduler {
      */
     @Scheduled(fixedDelayString = "${app.reddit.poll-interval-seconds:300}000")
     public void scheduledCollection() {
+        if (!schedulerEnabled) {
+            log.debug("定时采集已禁用，跳过");
+            return;
+        }
         triggerCollection("定时任务");
     }
 

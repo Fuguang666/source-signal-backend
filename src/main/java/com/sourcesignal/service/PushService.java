@@ -1,30 +1,30 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sourcesignal.common.BusinessException;
 import com.sourcesignal.common.PageResult;
 import com.sourcesignal.common.ResultCode;
-import com.sourcesignal.dto.LeadDTO;
 import com.sourcesignal.entity.Lead;
 import com.sourcesignal.entity.PushRecord;
 import com.sourcesignal.entity.Subscription;
+import com.sourcesignal.entity.User;
 import com.sourcesignal.entity.UserLead;
 import com.sourcesignal.entity.UserPushChannel;
 import com.sourcesignal.enums.PlanType;
 import com.sourcesignal.enums.PushChannelType;
 import com.sourcesignal.enums.PushFrequency;
 import com.sourcesignal.enums.SubscriptionStatus;
-import com.sourcesignal.repository.LeadRepository;
-import com.sourcesignal.repository.PushRecordRepository;
-import com.sourcesignal.repository.SubscriptionRepository;
-import com.sourcesignal.repository.UserLeadRepository;
-import com.sourcesignal.repository.UserPushChannelRepository;
-import com.sourcesignal.repository.UserRepository;
+import com.sourcesignal.mapper.LeadMapper;
+import com.sourcesignal.mapper.PushRecordMapper;
+import com.sourcesignal.mapper.SubscriptionMapper;
+import com.sourcesignal.mapper.UserLeadMapper;
+import com.sourcesignal.mapper.UserPushChannelMapper;
+import com.sourcesignal.mapper.UserMapper;
 import com.sourcesignal.security.CurrentUser;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,12 +43,12 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 public class PushService {
 
-    private final UserPushChannelRepository pushChannelRepository;
-    private final PushRecordRepository pushRecordRepository;
-    private final SubscriptionRepository subscriptionRepository;
-    private final UserLeadRepository userLeadRepository;
-    private final LeadRepository leadRepository;
-    private final UserRepository userRepository;
+    private final UserPushChannelMapper pushChannelMapper;
+    private final PushRecordMapper pushRecordMapper;
+    private final SubscriptionMapper subscriptionMapper;
+    private final UserLeadMapper userLeadMapper;
+    private final LeadMapper leadMapper;
+    private final UserMapper userMapper;
     private final CurrentUser currentUser;
 
     // ==================== 站内推送通知 ====================
@@ -59,20 +59,23 @@ public class PushService {
      */
     @Transactional
     public void pushNewLead(Lead lead) {
-        // 获取所有启用用户
-        List<Long> allUserIds = userRepository.findAllByEnabledTrue().stream()
-                .map(user -> user.getId())
+        List<Long> allUserIds = userMapper.selectList(new LambdaQueryWrapper<User>()
+                        .eq(User::getEnabled, true))
+                .stream()
+                .map(User::getId)
                 .collect(Collectors.toList());
 
         int pushedCount = 0;
         for (Long userId : allUserIds) {
             try {
-                // 检查是否已推送过（去重）
-                if (pushRecordRepository.existsByUserIdAndLeadIdAndChannel(userId, lead.getId(), PushChannelType.IN_APP)) {
+                Long exists = pushRecordMapper.selectCount(new LambdaQueryWrapper<PushRecord>()
+                        .eq(PushRecord::getUserId, userId)
+                        .eq(PushRecord::getLeadId, lead.getId())
+                        .eq(PushRecord::getChannel, PushChannelType.IN_APP));
+                if (exists != null && exists > 0) {
                     continue;
                 }
 
-                // 创建站内推送记录
                 PushRecord record = PushRecord.builder()
                         .userId(userId)
                         .leadId(lead.getId())
@@ -80,7 +83,7 @@ public class PushService {
                         .status("SUCCESS")
                         .pushedAt(LocalDateTime.now())
                         .build();
-                pushRecordRepository.save(record);
+                pushRecordMapper.insert(record);
                 pushedCount++;
             } catch (Exception e) {
                 log.error("站内推送失败: userId={}, leadId={}", userId, lead.getId(), e);
@@ -97,14 +100,14 @@ public class PushService {
      */
     public PageResult<Map<String, Object>> getNotifications(int page, int size) {
         Long userId = currentUser.getCurrentUserId();
-        int pageNum = Math.max(1, page) - 1;
+        int pageNum = Math.max(1, page);
         int pageSize = Math.min(100, Math.max(1, size));
-        Pageable pageable = PageRequest.of(pageNum, pageSize);
 
-        Page<PushRecord> recordPage = pushRecordRepository.findByUserIdAndChannelOrderByPushedAtDesc(
-                userId, PushChannelType.IN_APP, pageable);
+        Page<PushRecord> pageParam = new Page<>(pageNum, pageSize);
+        IPage<PushRecord> recordPage = pushRecordMapper.selectPageByUserAndChannel(
+                pageParam, userId, PushChannelType.IN_APP.name());
 
-        List<Map<String, Object>> notifications = recordPage.getContent().stream()
+        List<Map<String, Object>> notifications = recordPage.getRecords().stream()
                 .map(record -> {
                     Map<String, Object> map = new HashMap<>();
                     map.put("id", record.getId());
@@ -112,27 +115,27 @@ public class PushService {
                     map.put("pushedAt", record.getPushedAt());
                     map.put("status", record.getStatus());
 
-                    // 关联线索信息
-                    leadRepository.findById(record.getLeadId()).ifPresent(lead -> {
+                    Lead lead = leadMapper.selectById(record.getLeadId());
+                    if (lead != null) {
                         map.put("title", lead.getTitle());
                         map.put("grade", lead.getGrade().name());
                         map.put("gradeLabel", lead.getGrade().getLabel());
                         map.put("category", lead.getCategory());
                         map.put("subreddit", lead.getSubreddit());
                         map.put("postedAt", lead.getPostedAt());
-                    });
+                    }
 
-                    // 是否已读
-                    boolean isRead = userLeadRepository.findByUserIdAndLeadId(userId, record.getLeadId())
-                            .map(ul -> Boolean.TRUE.equals(ul.getRead()))
-                            .orElse(false);
+                    UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                            .eq(UserLead::getUserId, userId)
+                            .eq(UserLead::getLeadId, record.getLeadId()));
+                    boolean isRead = userLead != null && Boolean.TRUE.equals(userLead.getIsRead());
                     map.put("isRead", isRead);
 
                     return map;
                 })
                 .collect(Collectors.toList());
 
-        return PageResult.of(notifications, recordPage.getTotalElements(), page, pageSize);
+        return PageResult.of(notifications, recordPage.getTotal(), page, pageSize);
     }
 
     /**
@@ -140,9 +143,8 @@ public class PushService {
      */
     public long getUnreadCount() {
         Long userId = currentUser.getCurrentUserId();
-        // 站内推送总数 - 已读数
-        long total = pushRecordRepository.countByUserIdAndChannel(userId, PushChannelType.IN_APP);
-        long readCount = userLeadRepository.countByUserIdAndReadTrue(userId);
+        long total = pushRecordMapper.countByUserAndChannel(userId, PushChannelType.IN_APP.name());
+        long readCount = userLeadMapper.countReadByUserId(userId);
         return Math.max(0, total - readCount);
     }
 
@@ -152,15 +154,20 @@ public class PushService {
     @Transactional
     public void markAsRead(Long leadId) {
         Long userId = currentUser.getCurrentUserId();
-        UserLead userLead = userLeadRepository.findByUserIdAndLeadId(userId, leadId)
-                .orElseGet(() -> UserLead.builder()
-                        .userId(userId)
-                        .leadId(leadId)
-                        .marked(false)
-                        .read(false)
-                        .build());
-        userLead.setRead(true);
-        userLeadRepository.save(userLead);
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, leadId));
+        if (userLead == null) {
+            userLead = UserLead.builder()
+                    .userId(userId)
+                    .leadId(leadId)
+                    .marked(false)
+                    .isRead(false)
+                    .build();
+            userLeadMapper.insert(userLead);
+        }
+        userLead.setIsRead(true);
+        userLeadMapper.updateById(userLead);
     }
 
     /**
@@ -169,17 +176,22 @@ public class PushService {
     @Transactional
     public void markAllAsRead() {
         Long userId = currentUser.getCurrentUserId();
-        List<PushRecord> records = pushRecordRepository.findByUserIdAndChannel(userId, PushChannelType.IN_APP);
+        List<PushRecord> records = pushRecordMapper.selectByUserAndChannel(userId, PushChannelType.IN_APP.name());
         for (PushRecord record : records) {
-            UserLead userLead = userLeadRepository.findByUserIdAndLeadId(userId, record.getLeadId())
-                    .orElseGet(() -> UserLead.builder()
-                            .userId(userId)
-                            .leadId(record.getLeadId())
-                            .marked(false)
-                            .read(false)
-                            .build());
-            userLead.setRead(true);
-            userLeadRepository.save(userLead);
+            UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                    .eq(UserLead::getUserId, userId)
+                    .eq(UserLead::getLeadId, record.getLeadId()));
+            if (userLead == null) {
+                userLead = UserLead.builder()
+                        .userId(userId)
+                        .leadId(record.getLeadId())
+                        .marked(false)
+                        .isRead(false)
+                        .build();
+                userLeadMapper.insert(userLead);
+            }
+            userLead.setIsRead(true);
+            userLeadMapper.updateById(userLead);
         }
         log.info("用户标记全部通知已读: userId={}, 数量={}", userId, records.size());
     }
@@ -191,7 +203,8 @@ public class PushService {
      */
     public List<UserPushChannel> getChannels() {
         Long userId = currentUser.getCurrentUserId();
-        return pushChannelRepository.findByUserId(userId);
+        return pushChannelMapper.selectList(new LambdaQueryWrapper<UserPushChannel>()
+                .eq(UserPushChannel::getUserId, userId));
     }
 
     /**
@@ -201,25 +214,33 @@ public class PushService {
     public UserPushChannel toggleChannel(PushChannelType channel) {
         Long userId = currentUser.getCurrentUserId();
 
-        // 检查权限：非站内/邮件渠道需要付费版
         if (!channel.isTrialAvailable()) {
-            Subscription subscription = subscriptionRepository.findByUserId(userId)
-                    .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+            Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                    .eq(Subscription::getUserId, userId));
+            if (subscription == null) {
+                throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+            }
             if (subscription.getPlanType() != PlanType.PAID || subscription.getStatus() != SubscriptionStatus.ACTIVE) {
                 throw new BusinessException(ResultCode.PUSH_CHANNEL_LOCKED);
             }
         }
 
-        UserPushChannel userChannel = pushChannelRepository.findByUserIdAndChannel(userId, channel)
-                .orElseGet(() -> UserPushChannel.builder()
-                        .userId(userId)
-                        .channel(channel)
-                        .enabled(false)
-                        .frequency(PushFrequency.REALTIME)
-                        .build());
+        UserPushChannel userChannel = pushChannelMapper.selectOne(new LambdaQueryWrapper<UserPushChannel>()
+                .eq(UserPushChannel::getUserId, userId)
+                .eq(UserPushChannel::getChannel, channel));
+        if (userChannel == null) {
+            userChannel = UserPushChannel.builder()
+                    .userId(userId)
+                    .channel(channel)
+                    .enabled(false)
+                    .frequency(PushFrequency.REALTIME)
+                    .build();
+            pushChannelMapper.insert(userChannel);
+        }
 
         userChannel.setEnabled(!Boolean.TRUE.equals(userChannel.getEnabled()));
-        return pushChannelRepository.save(userChannel);
+        pushChannelMapper.updateById(userChannel);
+        return userChannel;
     }
 
     /**
@@ -228,10 +249,15 @@ public class PushService {
     @Transactional
     public UserPushChannel updateFrequency(PushChannelType channel, PushFrequency frequency) {
         Long userId = currentUser.getCurrentUserId();
-        UserPushChannel userChannel = pushChannelRepository.findByUserIdAndChannel(userId, channel)
-                .orElseThrow(() -> new BusinessException(ResultCode.PUSH_CONFIG_NOT_FOUND));
+        UserPushChannel userChannel = pushChannelMapper.selectOne(new LambdaQueryWrapper<UserPushChannel>()
+                .eq(UserPushChannel::getUserId, userId)
+                .eq(UserPushChannel::getChannel, channel));
+        if (userChannel == null) {
+            throw new BusinessException(ResultCode.PUSH_CONFIG_NOT_FOUND);
+        }
         userChannel.setFrequency(frequency);
-        return pushChannelRepository.save(userChannel);
+        pushChannelMapper.updateById(userChannel);
+        return userChannel;
     }
 
     /**
@@ -239,7 +265,9 @@ public class PushService {
      */
     public Map<String, Object> sendTest() {
         Long userId = currentUser.getCurrentUserId();
-        List<UserPushChannel> enabledChannels = pushChannelRepository.findByUserIdAndEnabledTrue(userId);
+        List<UserPushChannel> enabledChannels = pushChannelMapper.selectList(new LambdaQueryWrapper<UserPushChannel>()
+                .eq(UserPushChannel::getUserId, userId)
+                .eq(UserPushChannel::getEnabled, true));
 
         Map<String, Object> result = new HashMap<>();
         result.put("enabledChannels", enabledChannels.size());

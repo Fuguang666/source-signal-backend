@@ -1,7 +1,7 @@
 package com.sourcesignal.security;
 
 import com.sourcesignal.entity.User;
-import com.sourcesignal.repository.UserRepository;
+import com.sourcesignal.mapper.UserMapper;
 import com.sourcesignal.service.TokenBlacklistService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -19,7 +19,6 @@ import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Collections;
-import java.util.Optional;
 
 /**
  * JWT 认证过滤器
@@ -30,7 +29,7 @@ import java.util.Optional;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
     private final JwtUtil jwtUtil;
-    private final UserRepository userRepository;
+    private final UserMapper userMapper;
     private final TokenBlacklistService tokenBlacklistService;
 
     @Override
@@ -42,10 +41,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 && !tokenBlacklistService.isBlacklisted(token)) {
             try {
                 Long userId = jwtUtil.getUserIdFromToken(token);
-                Optional<User> userOpt = userRepository.findById(userId);
+                User user = userMapper.selectById(userId);
 
-                if (userOpt.isPresent() && Boolean.TRUE.equals(userOpt.get().getEnabled())) {
-                    User user = userOpt.get();
+                if (user != null && Boolean.TRUE.equals(user.getEnabled())) {
                     UsernamePasswordAuthenticationToken authentication =
                             new UsernamePasswordAuthenticationToken(
                                     user,

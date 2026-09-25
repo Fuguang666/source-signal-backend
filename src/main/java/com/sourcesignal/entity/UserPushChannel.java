@@ -1,59 +1,54 @@
 package com.sourcesignal.entity;
 
+import com.baomidou.mybatisplus.annotation.*;
 import com.sourcesignal.enums.PushChannelType;
 import com.sourcesignal.enums.PushFrequency;
-import jakarta.persistence.*;
 import lombok.*;
-import org.hibernate.annotations.CreationTimestamp;
-import org.hibernate.annotations.UpdateTimestamp;
 
 import java.time.LocalDateTime;
 
 /**
  * 用户推送渠道配置
+ * 表名：user_push_channel
  * 每个用户可配置多个推送渠道及开关状态
  */
-@Entity
-@Table(name = "user_push_channel", uniqueConstraints = {
-        @UniqueConstraint(name = "uk_user_channel", columnNames = {"user_id", "channel"})
-})
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@TableName("user_push_channel")
 public class UserPushChannel {
 
-    @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @TableId(type = IdType.AUTO)
     private Long id;
 
-    @Column(name = "user_id", nullable = false)
+    /** 用户ID */
+    @TableField("user_id")
     private Long userId;
 
     /** 推送渠道 */
-    @Enumerated(EnumType.STRING)
-    @Column(nullable = false, length = 16)
+    @TableField("channel")
     private PushChannelType channel;
 
     /** 是否启用 */
-    @Column(nullable = false)
+    @TableField("enabled")
     @Builder.Default
     private Boolean enabled = false;
 
-    /** 渠道配置（如 Telegram chatId、企业微信 webhook 等，JSON 格式） */
-    @Column(length = 1024)
-    private String configJson;
-
     /** 推送频率 */
-    @Enumerated(EnumType.STRING)
-    @Column(length = 16)
+    @TableField("frequency")
     @Builder.Default
     private PushFrequency frequency = PushFrequency.REALTIME;
 
-    @CreationTimestamp
-    @Column(updatable = false)
+    /** 渠道配置（如 Telegram chatId、企业微信 webhook 等，JSON 格式） */
+    @TableField("config_json")
+    private String configJson;
+
+    /** 创建时间 */
+    @TableField(value = "created_at", fill = FieldFill.INSERT)
     private LocalDateTime createdAt;
 
-    @UpdateTimestamp
+    /** 更新时间 */
+    @TableField(value = "updated_at", fill = FieldFill.INSERT_UPDATE)
     private LocalDateTime updatedAt;
 }

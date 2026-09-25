@@ -1,16 +1,17 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.sourcesignal.common.PageResult;
 import com.sourcesignal.entity.Lead;
 import com.sourcesignal.entity.Subscription;
 import com.sourcesignal.entity.User;
-import com.sourcesignal.repository.LeadRepository;
-import com.sourcesignal.repository.SubscriptionRepository;
-import com.sourcesignal.repository.UserRepository;
+import com.sourcesignal.mapper.LeadMapper;
+import com.sourcesignal.mapper.SubscriptionMapper;
+import com.sourcesignal.mapper.UserMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.data.domain.Page;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -25,16 +26,20 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class AdminService {
 
-    private final UserRepository userRepository;
-    private final SubscriptionRepository subscriptionRepository;
-    private final LeadRepository leadRepository;
+    private final UserMapper userMapper;
+    private final SubscriptionMapper subscriptionMapper;
+    private final LeadMapper leadMapper;
 
     /**
      * 分页查询用户列表
      */
     public PageResult<Map<String, Object>> listUsers(int page, int size) {
-        Page<User> userPage = userRepository.findAll(PageRequest.of(Math.max(0, page - 1), Math.min(100, size)));
-        var list = userPage.getContent().stream().map(user -> {
+        int pageNum = Math.max(1, page);
+        int pageSize = Math.min(100, Math.max(1, size));
+        Page<User> pageParam = new Page<>(pageNum, pageSize);
+        IPage<User> userPage = userMapper.selectPage(pageParam, null);
+
+        var list = userPage.getRecords().stream().map(user -> {
             Map<String, Object> map = new HashMap<String, Object>();
             map.put("id", user.getId());
             map.put("username", user.getUsername());
@@ -43,13 +48,15 @@ public class AdminService {
             map.put("enabled", user.getEnabled());
             map.put("lastLoginAt", user.getLastLoginAt());
             map.put("createdAt", user.getCreatedAt());
-            subscriptionRepository.findByUserId(user.getId()).ifPresent(sub -> {
+            Subscription sub = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                    .eq(Subscription::getUserId, user.getId()));
+            if (sub != null) {
                 map.put("planType", sub.getPlanType());
                 map.put("status", sub.getStatus());
-            });
+            }
             return map;
         }).toList();
-        return PageResult.of(list, userPage.getTotalElements(), page, size);
+        return PageResult.of(list, userPage.getTotal(), page, size);
     }
 
     /**
@@ -57,10 +64,13 @@ public class AdminService {
      */
     @Transactional
     public Map<String, Object> updateSubscriptionStatus(Long userId, String status) {
-        Subscription subscription = subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new RuntimeException("订阅信息不存在"));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new RuntimeException("订阅信息不存在");
+        }
         subscription.setStatus(com.sourcesignal.enums.SubscriptionStatus.valueOf(status));
-        subscriptionRepository.save(subscription);
+        subscriptionMapper.updateById(subscription);
         log.info("后台更新用户订阅状态: userId={}, status={}", userId, status);
 
         Map<String, Object> result = new HashMap<>();
@@ -75,10 +85,12 @@ public class AdminService {
      */
     @Transactional
     public Map<String, Object> toggleUserEnabled(Long userId) {
-        User user = userRepository.findById(userId)
-                .orElseThrow(() -> new RuntimeException("用户不存在"));
+        User user = userMapper.selectById(userId);
+        if (user == null) {
+            throw new RuntimeException("用户不存在");
+        }
         user.setEnabled(!Boolean.TRUE.equals(user.getEnabled()));
-        userRepository.save(user);
+        userMapper.updateById(user);
         log.info("后台切换用户状态: userId={}, enabled={}", userId, user.getEnabled());
 
         Map<String, Object> result = new HashMap<>();
@@ -92,9 +104,13 @@ public class AdminService {
      * 分页查询未抽检线索
      */
     public PageResult<Lead> listUnreviewedLeads(int page, int size) {
-        Page<Lead> leadPage = leadRepository.findByReviewedFalseOrderByPostedAtDesc(
-                PageRequest.of(Math.max(0, page - 1), Math.min(100, size)));
-        return PageResult.of(leadPage.getContent(), leadPage.getTotalElements(), page, size);
+        int pageNum = Math.max(1, page);
+        int pageSize = Math.min(100, Math.max(1, size));
+        Page<Lead> pageParam = new Page<>(pageNum, pageSize);
+        IPage<Lead> leadPage = leadMapper.selectPage(pageParam, new LambdaQueryWrapper<Lead>()
+                .eq(Lead::getReviewed, false)
+                .orderByDesc(Lead::getPostedAt));
+        return PageResult.of(leadPage.getRecords(), leadPage.getTotal(), page, size);
     }
 
     /**
@@ -102,12 +118,14 @@ public class AdminService {
      */
     @Transactional
     public Map<String, Object> reviewLead(Long leadId, boolean accurate, String note) {
-        Lead lead = leadRepository.findById(leadId)
-                .orElseThrow(() -> new RuntimeException("线索不存在"));
+        Lead lead = leadMapper.selectById(leadId);
+        if (lead == null) {
+            throw new RuntimeException("线索不存在");
+        }
         lead.setReviewed(true);
         lead.setReviewAccurate(accurate);
         lead.setReviewNote(note);
-        leadRepository.save(lead);
+        leadMapper.updateById(lead);
         log.info("后台抽检线索: leadId={}, accurate={}", leadId, accurate);
 
         Map<String, Object> result = new HashMap<>();
@@ -122,9 +140,11 @@ public class AdminService {
      */
     public Map<String, Object> getStats() {
         Map<String, Object> result = new HashMap<>();
-        result.put("totalUsers", userRepository.count());
-        result.put("totalLeads", leadRepository.count());
-        result.put("unreviewedLeads", leadRepository.count() - 0); // TODO: 精确统计
+        result.put("totalUsers", userMapper.selectCount(null));
+        result.put("totalLeads", leadMapper.selectCount(null));
+        long unreviewed = leadMapper.selectCount(new LambdaQueryWrapper<Lead>()
+                .eq(Lead::getReviewed, false));
+        result.put("unreviewedLeads", unreviewed);
         return result;
     }
 }

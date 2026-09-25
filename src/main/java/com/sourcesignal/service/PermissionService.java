@@ -1,13 +1,14 @@
 package com.sourcesignal.service;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.sourcesignal.common.BusinessException;
 import com.sourcesignal.common.ResultCode;
 import com.sourcesignal.entity.Subscription;
 import com.sourcesignal.entity.UserSubscriptionConfig;
 import com.sourcesignal.enums.PlanType;
 import com.sourcesignal.enums.SubscriptionStatus;
-import com.sourcesignal.repository.SubscriptionRepository;
-import com.sourcesignal.repository.UserSubscriptionConfigRepository;
+import com.sourcesignal.mapper.SubscriptionMapper;
+import com.sourcesignal.mapper.UserSubscriptionConfigMapper;
 import com.sourcesignal.security.CurrentUser;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,8 +32,8 @@ import java.util.List;
 @RequiredArgsConstructor
 public class PermissionService {
 
-    private final SubscriptionRepository subscriptionRepository;
-    private final UserSubscriptionConfigRepository configRepository;
+    private final SubscriptionMapper subscriptionMapper;
+    private final UserSubscriptionConfigMapper configMapper;
     private final CurrentUser currentUser;
     private final ObjectMapper objectMapper;
 
@@ -56,8 +57,12 @@ public class PermissionService {
      */
     public Subscription getCurrentSubscription() {
         Long userId = currentUser.getCurrentUserId();
-        return subscriptionRepository.findByUserId(userId)
-                .orElseThrow(() -> new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND));
+        Subscription subscription = subscriptionMapper.selectOne(new LambdaQueryWrapper<Subscription>()
+                .eq(Subscription::getUserId, userId));
+        if (subscription == null) {
+            throw new BusinessException(ResultCode.SUBSCRIPTION_NOT_FOUND);
+        }
+        return subscription;
     }
 
     /**
@@ -125,7 +130,7 @@ public class PermissionService {
     }
 
     /**
-     * 校验监控品类数量是否超限（直接校验目标列表大小）
+     * 校验监控品类数量是否超限
      */
     public void checkCategoryLimit(List<String> targetCategories) {
         if (isPaidUser()) return;
@@ -136,7 +141,7 @@ public class PermissionService {
     }
 
     /**
-     * 校验目标地区数量是否超限（直接校验目标列表大小）
+     * 校验目标地区数量是否超限
      */
     public void checkRegionLimit(List<String> targetRegions) {
         if (isPaidUser()) return;
@@ -172,7 +177,7 @@ public class PermissionService {
         } else {
             sub.setTodaySampleCount(sub.getTodaySampleCount() + 1);
         }
-        subscriptionRepository.save(sub);
+        subscriptionMapper.updateById(sub);
     }
 
     /**
@@ -180,7 +185,8 @@ public class PermissionService {
      */
     public List<String> getCurrentCategories() {
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId).orElse(null);
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
         if (config == null) return new ArrayList<>();
         try {
             return objectMapper.readValue(config.getCategories(), new TypeReference<List<String>>() {});
@@ -194,7 +200,8 @@ public class PermissionService {
      */
     public List<String> getCurrentRegions() {
         Long userId = currentUser.getCurrentUserId();
-        UserSubscriptionConfig config = configRepository.findByUserId(userId).orElse(null);
+        UserSubscriptionConfig config = configMapper.selectOne(new LambdaQueryWrapper<UserSubscriptionConfig>()
+                .eq(UserSubscriptionConfig::getUserId, userId));
         if (config == null) return new ArrayList<>();
         try {
             return objectMapper.readValue(config.getRegions(), new TypeReference<List<String>>() {});
