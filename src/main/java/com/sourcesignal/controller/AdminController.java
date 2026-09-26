@@ -30,12 +30,14 @@ public class AdminController {
         return Result.success(adminService.getStats());
     }
 
-    @Operation(summary = "分页查询用户列表")
+    @Operation(summary = "分页查询用户列表", description = "支持订阅状态筛选和邮箱/用户名搜索")
     @GetMapping("/users")
     public Result<PageResult<Map<String, Object>>> listUsers(
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int size) {
-        return Result.success(adminService.listUsers(page, size));
+            @RequestParam(defaultValue = "50") int size,
+            @RequestParam(defaultValue = "all") String status,
+            @RequestParam(required = false) String keyword) {
+        return Result.success(adminService.listUsers(page, size, status, keyword));
     }
 
     @Operation(summary = "更新用户订阅状态")

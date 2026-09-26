@@ -2,12 +2,14 @@ package com.sourcesignal.collector;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.sourcesignal.service.CollectConfigService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -16,15 +18,19 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import reactor.util.retry.Retry;
 
 /**
  * Reddit 数据采集器
  * 通过第三方官方授权 API 采集采购相关帖子
  *
  * 采集策略：
- * 1. 使用多个采购相关关键词搜索
- * 2. 过滤出目标 subreddit 的帖子
+ * 1. 从数据库读取启用的采集关键词（后台可配置）
+ * 2. 使用关键词全局搜索（仅最近24小时 t=day）
  * 3. 去重（externalId）
+ * 4. 不按板块过滤，所有搜索结果均进入后续处理（由关键词初筛+AI打标过滤）
+ *
+ * 配置变更通过 CollectConfigService 缓存自动生效（30秒刷新）
  */
 @Slf4j
 @Component
@@ -33,6 +39,7 @@ public class RedditCollector {
 
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
+    private final CollectConfigService collectConfigService;
 
     @Value("${app.reddit.base-url:https://api.redditapis.com}")
     private String baseUrl;
@@ -40,11 +47,8 @@ public class RedditCollector {
     @Value("${app.reddit.api-key:}")
     private String apiKey;
 
-    @Value("${app.reddit.subreddits:ChinaSourcing,Business_China,ecommerce,AmazonSeller}")
-    private String subreddits;
-
-    /** 采购相关搜索关键词 */
-    private static final List<String> SEARCH_KEYWORDS = Arrays.asList(
+    /** 默认关键词（数据库为空时的 fallback） */
+    private static final List<String> DEFAULT_KEYWORDS = Arrays.asList(
             "sourcing agent",
             "looking for supplier",
             "looking for manufacturer",
@@ -58,34 +62,49 @@ public class RedditCollector {
     );
 
     /**
-     * 采集所有目标 subreddit 的新帖
+     * 使用关键词采集帖子（不按板块过滤）
      * @return 原始帖子列表（已去重）
      */
     public List<RawPost> collectAll() {
-        Set<String> targetSubs = new HashSet<>(Arrays.asList(subreddits.split(",")));
-        // 额外关注一些采购相关 subreddit
-        targetSubs.addAll(Arrays.asList("dropshipping", "FulfillmentByAmazon", "Entrepreneur", "smallbusiness"));
+        // 从数据库读取启用的关键词（带缓存）
+        List<String> keywords = collectConfigService.getEnabledKeywords();
+
+        // 数据库为空时使用默认配置
+        if (keywords.isEmpty()) {
+            log.warn("数据库中无启用的采集关键词，使用默认配置");
+            keywords = DEFAULT_KEYWORDS;
+        }
+
+        log.info("本轮采集配置：{} 个关键词（不按板块过滤）", keywords.size());
 
         List<RawPost> allPosts = new ArrayList<>();
         Set<String> seenIds = new HashSet<>();
 
-        for (String keyword : SEARCH_KEYWORDS) {
+        for (String keyword : keywords) {
             try {
-                List<RawPost> posts = searchPosts(keyword, 25);
+                List<RawPost> posts = searchPosts(keyword, 50);
+                int added = 0;
                 for (RawPost post : posts) {
-                    // 只保留目标 subreddit 的帖子
-                    if (targetSubs.contains(post.subreddit()) && !seenIds.contains(post.externalId())) {
+                    // 仅去重，不按板块过滤
+                    if (!seenIds.contains(post.externalId())) {
                         seenIds.add(post.externalId());
                         allPosts.add(post);
+                        added++;
                     }
                 }
-                log.info("关键词 '{}' 采集到 {} 条目标帖子", keyword, posts.size());
+                // 更新关键词命中计数
+                if (added > 0) {
+                    collectConfigService.incrementKeywordHits(keyword);
+                }
+                log.info("关键词 '{}' 搜索到 {} 条，去重后新增 {} 条", keyword, posts.size(), added);
             } catch (Exception e) {
                 log.error("关键词 '{}' 采集失败", keyword, e);
             }
+            // 关键词之间短暂间隔，避免连续快速请求导致 API 限流或连接异常
+            try { Thread.sleep(3000); } catch (InterruptedException ie) { Thread.currentThread().interrupt(); }
         }
 
-        log.info("本轮采集完成，共获取 {} 条去重后的目标帖子", allPosts.size());
+        log.info("本轮采集完成，共获取 {} 条去重后的帖子", allPosts.size());
         return allPosts;
     }
 
@@ -93,7 +112,7 @@ public class RedditCollector {
      * 搜索帖子
      */
     public List<RawPost> searchPosts(String query, int limit) {
-        String url = baseUrl + "/api/reddit/search?q=" + encodeUrl(query) + "&limit=" + limit;
+        String url = baseUrl + "/api/reddit/search?q=" + encodeUrl(query) + "&limit=" + limit + "&t=day";
 
         String response = webClientBuilder.build()
                 .get()
@@ -101,6 +120,7 @@ public class RedditCollector {
                 .header("Authorization", "Bearer " + apiKey)
                 .retrieve()
                 .bodyToMono(String.class)
+                .retryWhen(Retry.backoff(3, Duration.ofSeconds(3)).maxBackoff(Duration.ofSeconds(10)))
                 .block();
 
         return parsePosts(response);
@@ -177,7 +197,7 @@ public class RedditCollector {
             }
         }
 
-        // 作者 karma（API 未直接提供，用 upvotes 近似）
+        // 作者 karma（API 未直接提供，用 upvotes 近似；账号去噪已禁用，此字段暂不使用）
         int authorKarma = node.path("upvotes").asInt(0);
 
         return new RawPost(externalId, subreddit, title, body, url, author, authorKarma, postedAt);

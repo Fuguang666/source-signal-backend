@@ -35,3 +35,9 @@ logs/
 # ===== Temp =====
 *.tmp
 *.bak
+
+# ===== Frontend (separate repo) =====
+frontend/
+
+# ===== Tools =====
+.lithe/

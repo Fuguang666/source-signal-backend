@@ -31,13 +31,22 @@ public class AdminService {
     private final LeadMapper leadMapper;
 
     /**
-     * 分页查询用户列表
+     * 分页查询用户列表（支持订阅状态筛选和邮箱搜索）
      */
-    public PageResult<Map<String, Object>> listUsers(int page, int size) {
+    public PageResult<Map<String, Object>> listUsers(int page, int size, String status, String keyword) {
         int pageNum = Math.max(1, page);
         int pageSize = Math.min(100, Math.max(1, size));
+
+        // 构建用户查询条件
+        LambdaQueryWrapper<User> userWrapper = new LambdaQueryWrapper<>();
+        if (keyword != null && !keyword.trim().isEmpty()) {
+            String kw = keyword.trim().toLowerCase();
+            userWrapper.and(w -> w.like(User::getEmail, kw).or().like(User::getUsername, kw));
+        }
+        userWrapper.orderByDesc(User::getCreatedAt);
+
         Page<User> pageParam = new Page<>(pageNum, pageSize);
-        IPage<User> userPage = userMapper.selectPage(pageParam, null);
+        IPage<User> userPage = userMapper.selectPage(pageParam, userWrapper);
 
         var list = userPage.getRecords().stream().map(user -> {
             Map<String, Object> map = new HashMap<String, Object>();
@@ -53,10 +62,21 @@ public class AdminService {
             if (sub != null) {
                 map.put("planType", sub.getPlanType());
                 map.put("status", sub.getStatus());
+            } else {
+                map.put("planType", "TRIAL");
+                map.put("status", "TRIALING");
             }
             return map;
         }).toList();
-        return PageResult.of(list, userPage.getTotal(), page, size);
+
+        // 按订阅状态过滤（在内存中过滤，因为订阅状态在另一张表）
+        if (status != null && !status.equalsIgnoreCase("all")) {
+            list = list.stream()
+                    .filter(m -> status.equalsIgnoreCase(String.valueOf(m.get("status"))))
+                    .toList();
+        }
+
+        return PageResult.of(list, (long) list.size(), page, size);
     }
 
     /**

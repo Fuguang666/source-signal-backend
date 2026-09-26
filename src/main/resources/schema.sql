@@ -158,3 +158,61 @@ CREATE TABLE IF NOT EXISTS push_record (
 
 -- 修复 user_push_channel channel 枚举（添加 IN_APP）
 -- ALTER TABLE user_push_channel MODIFY COLUMN channel ENUM('IN_APP','EMAIL','TELEGRAM','WECOM','DINGTALK') NOT NULL;
+
+-- -----------------------------------------------------------
+-- 8. 采集关键词配置表
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS collect_keyword (
+    id              BIGINT NOT NULL AUTO_INCREMENT,
+    keyword         VARCHAR(255) NOT NULL COMMENT '采集关键词',
+    note            VARCHAR(500) DEFAULT NULL COMMENT '关键词说明',
+    enabled         BIT(1) NOT NULL DEFAULT b'1' COMMENT '是否启用',
+    today_hits      INT NOT NULL DEFAULT 0 COMMENT '今日命中次数',
+    created_at      DATETIME(6) DEFAULT NULL COMMENT '创建时间',
+    updated_at      DATETIME(6) DEFAULT NULL COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_keyword (keyword)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采集关键词配置表';
+
+-- -----------------------------------------------------------
+-- 9. 采集板块配置表
+-- -----------------------------------------------------------
+CREATE TABLE IF NOT EXISTS collect_subreddit (
+    id                  BIGINT NOT NULL AUTO_INCREMENT,
+    name                VARCHAR(255) NOT NULL COMMENT '板块名称（如 ChinaSourcing）',
+    enabled             BIT(1) NOT NULL DEFAULT b'1' COMMENT '是否启用采集',
+    today_new           INT NOT NULL DEFAULT 0 COMMENT '今日新线索数',
+    last_collected_at   DATETIME(6) DEFAULT NULL COMMENT '最近采集时间',
+    created_at          DATETIME(6) DEFAULT NULL COMMENT '创建时间',
+    updated_at          DATETIME(6) DEFAULT NULL COMMENT '更新时间',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='采集板块配置表';
+
+-- -----------------------------------------------------------
+-- 初始化采集关键词配置（默认10个采购关键词）
+-- -----------------------------------------------------------
+INSERT IGNORE INTO collect_keyword (keyword, note, enabled) VALUES
+('sourcing agent', '采购代理相关', b'1'),
+('looking for supplier', '寻找供应商', b'1'),
+('looking for manufacturer', '寻找工厂', b'1'),
+('wholesale supplier', '批发供应商', b'1'),
+('buying from china', '从中国采购', b'1'),
+('china sourcing', '中国采购', b'1'),
+('find factory china', '找中国工厂', b'1'),
+('private label manufacturer', '私标代工工厂', b'1'),
+('alibaba supplier', '阿里巴巴供应商', b'1'),
+('product sourcing', '产品采购', b'1');
+
+-- -----------------------------------------------------------
+-- 初始化采集板块配置（默认8个采购相关板块）
+-- -----------------------------------------------------------
+INSERT IGNORE INTO collect_subreddit (name, enabled) VALUES
+('ChinaSourcing', b'1'),
+('Business_China', b'1'),
+('ecommerce', b'1'),
+('AmazonSeller', b'1'),
+('dropshipping', b'1'),
+('FulfillmentByAmazon', b'1'),
+('Entrepreneur', b'1'),
+('smallbusiness', b'1');
