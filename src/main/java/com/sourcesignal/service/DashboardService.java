@@ -108,7 +108,7 @@ public class DashboardService {
         List<Map<String, Object>> categoryDistribution = leadMapper.countByCategorySince(thirtyDaysAgo).stream()
                 .map(row -> {
                     Map<String, Object> map = new HashMap<>();
-                    map.put("category", row.get("category") != null ? row.get("category").toString() : "未分类");
+                    map.put("category", row.get("category") != null ? row.get("category").toString() : "其他");
                     map.put("count", row.get("cnt"));
                     return map;
                 })
@@ -209,6 +209,7 @@ public class DashboardService {
                 .needType(lead.getNeedType())
                 .region(lead.getRegion())
                 .postedAt(lead.getPostedAt())
+                .pushedAt(lead.getCollectedAt())
                 .marked(false)
                 .isRead(false);
 

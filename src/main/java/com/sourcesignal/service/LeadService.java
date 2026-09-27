@@ -53,8 +53,8 @@ public class LeadService {
 
         Page<Lead> page = new Page<>(pageNum, size);
         IPage<Lead> leadPage = leadMapper.selectPageByFilters(page,
-                gradeStr, request.getCategory(), regionStr, needTypeStr,
-                request.getKeyword(), since);
+                userId, gradeStr, request.getCategory(), regionStr, needTypeStr,
+                request.getKeyword(), request.getMarked(), since);
 
         List<LeadDTO> dtoList = leadPage.getRecords().stream()
                 .map(lead -> toLeadDTO(lead, userId))
@@ -189,6 +189,7 @@ public class LeadService {
                 .needType(lead.getNeedType())
                 .region(lead.getRegion())
                 .postedAt(lead.getPostedAt())
+                .pushedAt(lead.getCollectedAt())
                 .marked(false)
                 .isRead(false);
 

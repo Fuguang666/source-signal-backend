@@ -20,23 +20,30 @@ public interface LeadMapper extends BaseMapper<Lead> {
     /**
      * 多条件筛选分页查询
      * 所有参数均可为 null（null 表示不限制该条件）
+     * marked=true: 只看已标记; marked=false: 只看未标记（含无 UserLead 记录）
      */
     @Select("<script>" +
-            "SELECT * FROM procurement_lead WHERE 1=1 " +
-            "<if test='grade != null'> AND grade = #{grade} </if>" +
-            "<if test='category != null'> AND category = #{category} </if>" +
-            "<if test='region != null'> AND region = #{region} </if>" +
-            "<if test='needType != null'> AND need_type = #{needType} </if>" +
-            "<if test='keyword != null'> AND (LOWER(title) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR LOWER(body) LIKE CONCAT('%', LOWER(#{keyword}), '%')) </if>" +
-            "AND collected_at >= #{since} " +
-            "ORDER BY collected_at DESC" +
+            "SELECT l.* FROM procurement_lead l " +
+            "LEFT JOIN user_lead ul ON ul.lead_id = l.id AND ul.user_id = #{userId} " +
+            "WHERE 1=1 " +
+            "<if test='grade != null'> AND l.grade = #{grade} </if>" +
+            "<if test='category != null'> AND l.category = #{category} </if>" +
+            "<if test='region != null'> AND l.region = #{region} </if>" +
+            "<if test='needType != null'> AND l.need_type = #{needType} </if>" +
+            "<if test='keyword != null'> AND (LOWER(l.title) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR LOWER(l.body) LIKE CONCAT('%', LOWER(#{keyword}), '%')) </if>" +
+            "<if test='marked != null and marked'> AND ul.marked = 1 </if>" +
+            "<if test='marked != null and !marked'> AND (ul.marked = 0 OR ul.id IS NULL) </if>" +
+            "AND l.collected_at >= #{since} " +
+            "ORDER BY l.collected_at DESC" +
             "</script>")
     IPage<Lead> selectPageByFilters(IPage<Lead> page,
+                                     @Param("userId") Long userId,
                                      @Param("grade") String grade,
                                      @Param("category") String category,
                                      @Param("region") String region,
                                      @Param("needType") String needType,
                                      @Param("keyword") String keyword,
+                                     @Param("marked") Boolean marked,
                                      @Param("since") LocalDateTime since);
 
     /** 统计指定时间之后采集的线索数 */

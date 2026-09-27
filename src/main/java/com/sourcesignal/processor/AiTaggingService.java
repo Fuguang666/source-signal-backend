@@ -16,7 +16,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * AI 打标分级服务
@@ -50,6 +52,160 @@ public class AiTaggingService {
     @Value("${app.ai.timeout-seconds:30}")
     private int timeoutSeconds;
 
+    /** 固定品类列表（AI 必须从中选择，不允许自由发挥或填"未分类"） */
+    private static final String[] CATEGORY_LIST = {
+            "宠物用品", "户外露营", "3C数码", "服装配饰", "家居用品",
+            "美妆个护", "母婴玩具", "运动健身", "汽车配件", "工业五金",
+            "食品饮料", "图书文具", "珠宝饰品", "电子产品", "医疗器械",
+            "办公用品", "其他"
+    };
+
+    /** 品类关键词映射（英文关键词 -> 中文品类），用于 AI 返回空/未分类时的兜底匹配 */
+    private static final Map<String, String> CATEGORY_KEYWORDS = new HashMap<>();
+    static {
+        // 宠物用品
+        CATEGORY_KEYWORDS.put("pet", "宠物用品");
+        CATEGORY_KEYWORDS.put("dog", "宠物用品");
+        CATEGORY_KEYWORDS.put("cat", "宠物用品");
+        CATEGORY_KEYWORDS.put("puppy", "宠物用品");
+        CATEGORY_KEYWORDS.put("kitten", "宠物用品");
+        CATEGORY_KEYWORDS.put("pet supply", "宠物用品");
+        // 户外露营
+        CATEGORY_KEYWORDS.put("camping", "户外露营");
+        CATEGORY_KEYWORDS.put("outdoor", "户外露营");
+        CATEGORY_KEYWORDS.put("hiking", "户外露营");
+        CATEGORY_KEYWORDS.put("tent", "户外露营");
+        CATEGORY_KEYWORDS.put("backpacking", "户外露营");
+        CATEGORY_KEYWORDS.put("survival", "户外露营");
+        // 3C数码
+        CATEGORY_KEYWORDS.put("phone", "3C数码");
+        CATEGORY_KEYWORDS.put("smartphone", "3C数码");
+        CATEGORY_KEYWORDS.put("laptop", "3C数码");
+        CATEGORY_KEYWORDS.put("computer", "3C数码");
+        CATEGORY_KEYWORDS.put("tablet", "3C数码");
+        CATEGORY_KEYWORDS.put("headphone", "3C数码");
+        CATEGORY_KEYWORDS.put("earphone", "3C数码");
+        CATEGORY_KEYWORDS.put("charger", "3C数码");
+        CATEGORY_KEYWORDS.put("cable", "3C数码");
+        CATEGORY_KEYWORDS.put("usb", "3C数码");
+        // 服装配饰
+        CATEGORY_KEYWORDS.put("clothing", "服装配饰");
+        CATEGORY_KEYWORDS.put("apparel", "服装配饰");
+        CATEGORY_KEYWORDS.put("garment", "服装配饰");
+        CATEGORY_KEYWORDS.put("t-shirt", "服装配饰");
+        CATEGORY_KEYWORDS.put("shirt", "服装配饰");
+        CATEGORY_KEYWORDS.put("dress", "服装配饰");
+        CATEGORY_KEYWORDS.put("jacket", "服装配饰");
+        CATEGORY_KEYWORDS.put("hoodie", "服装配饰");
+        CATEGORY_KEYWORDS.put("sneaker", "服装配饰");
+        CATEGORY_KEYWORDS.put("shoe", "服装配饰");
+        CATEGORY_KEYWORDS.put("bag", "服装配饰");
+        CATEGORY_KEYWORDS.put("handbag", "服装配饰");
+        CATEGORY_KEYWORDS.put("watch", "服装配饰");
+        CATEGORY_KEYWORDS.put("sunglasses", "服装配饰");
+        // 家居用品
+        CATEGORY_KEYWORDS.put("home", "家居用品");
+        CATEGORY_KEYWORDS.put("furniture", "家居用品");
+        CATEGORY_KEYWORDS.put("kitchen", "家居用品");
+        CATEGORY_KEYWORDS.put("bedding", "家居用品");
+        CATEGORY_KEYWORDS.put("curtain", "家居用品");
+        CATEGORY_KEYWORDS.put("lamp", "家居用品");
+        CATEGORY_KEYWORDS.put("decor", "家居用品");
+        CATEGORY_KEYWORDS.put("garden", "家居用品");
+        // 美妆个护
+        CATEGORY_KEYWORDS.put("beauty", "美妆个护");
+        CATEGORY_KEYWORDS.put("cosmetic", "美妆个护");
+        CATEGORY_KEYWORDS.put("skincare", "美妆个护");
+        CATEGORY_KEYWORDS.put("makeup", "美妆个护");
+        CATEGORY_KEYWORDS.put("fragrance", "美妆个护");
+        CATEGORY_KEYWORDS.put("perfume", "美妆个护");
+        CATEGORY_KEYWORDS.put("hair care", "美妆个护");
+        CATEGORY_KEYWORDS.put("shampoo", "美妆个护");
+        // 母婴玩具
+        CATEGORY_KEYWORDS.put("baby", "母婴玩具");
+        CATEGORY_KEYWORDS.put("infant", "母婴玩具");
+        CATEGORY_KEYWORDS.put("newborn", "母婴玩具");
+        CATEGORY_KEYWORDS.put("toy", "母婴玩具");
+        CATEGORY_KEYWORDS.put("kids", "母婴玩具");
+        CATEGORY_KEYWORDS.put("children", "母婴玩具");
+        CATEGORY_KEYWORDS.put("diaper", "母婴玩具");
+        CATEGORY_KEYWORDS.put("stroller", "母婴玩具");
+        // 运动健身
+        CATEGORY_KEYWORDS.put("fitness", "运动健身");
+        CATEGORY_KEYWORDS.put("gym", "运动健身");
+        CATEGORY_KEYWORDS.put("workout", "运动健身");
+        CATEGORY_KEYWORDS.put("yoga", "运动健身");
+        CATEGORY_KEYWORDS.put("sport", "运动健身");
+        CATEGORY_KEYWORDS.put("running", "运动健身");
+        CATEGORY_KEYWORDS.put("cycling", "运动健身");
+        CATEGORY_KEYWORDS.put("dumbbell", "运动健身");
+        // 汽车配件
+        CATEGORY_KEYWORDS.put("car", "汽车配件");
+        CATEGORY_KEYWORDS.put("auto", "汽车配件");
+        CATEGORY_KEYWORDS.put("automotive", "汽车配件");
+        CATEGORY_KEYWORDS.put("vehicle", "汽车配件");
+        CATEGORY_KEYWORDS.put("motorcycle", "汽车配件");
+        CATEGORY_KEYWORDS.put("tire", "汽车配件");
+        CATEGORY_KEYWORDS.put("battery", "汽车配件");
+        // 工业五金
+        CATEGORY_KEYWORDS.put("industrial", "工业五金");
+        CATEGORY_KEYWORDS.put("hardware", "工业五金");
+        CATEGORY_KEYWORDS.put("tool", "工业五金");
+        CATEGORY_KEYWORDS.put("machinery", "工业五金");
+        CATEGORY_KEYWORDS.put("manufacturing", "工业五金");
+        CATEGORY_KEYWORDS.put("metal", "工业五金");
+        CATEGORY_KEYWORDS.put("steel", "工业五金");
+        CATEGORY_KEYWORDS.put("plastic", "工业五金");
+        CATEGORY_KEYWORDS.put("mold", "工业五金");
+        // 食品饮料
+        CATEGORY_KEYWORDS.put("food", "食品饮料");
+        CATEGORY_KEYWORDS.put("beverage", "食品饮料");
+        CATEGORY_KEYWORDS.put("drink", "食品饮料");
+        CATEGORY_KEYWORDS.put("snack", "食品饮料");
+        CATEGORY_KEYWORDS.put("coffee", "食品饮料");
+        CATEGORY_KEYWORDS.put("tea", "食品饮料");
+        CATEGORY_KEYWORDS.put("supplement", "食品饮料");
+        // 图书文具
+        CATEGORY_KEYWORDS.put("book", "图书文具");
+        CATEGORY_KEYWORDS.put("stationery", "图书文具");
+        CATEGORY_KEYWORDS.put("pen", "图书文具");
+        CATEGORY_KEYWORDS.put("notebook", "图书文具");
+        CATEGORY_KEYWORDS.put("paper", "图书文具");
+        CATEGORY_KEYWORDS.put("print", "图书文具");
+        // 珠宝饰品
+        CATEGORY_KEYWORDS.put("jewelry", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("jewellery", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("ring", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("necklace", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("earring", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("bracelet", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("diamond", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("gold", "珠宝饰品");
+        CATEGORY_KEYWORDS.put("silver", "珠宝饰品");
+        // 电子产品
+        CATEGORY_KEYWORDS.put("electronic", "电子产品");
+        CATEGORY_KEYWORDS.put("device", "电子产品");
+        CATEGORY_KEYWORDS.put("gadget", "电子产品");
+        CATEGORY_KEYWORDS.put("drone", "电子产品");
+        CATEGORY_KEYWORDS.put("camera", "电子产品");
+        CATEGORY_KEYWORDS.put("speaker", "电子产品");
+        CATEGORY_KEYWORDS.put("smart", "电子产品");
+        CATEGORY_KEYWORDS.put("wearable", "电子产品");
+        // 医疗器械
+        CATEGORY_KEYWORDS.put("medical", "医疗器械");
+        CATEGORY_KEYWORDS.put("health", "医疗器械");
+        CATEGORY_KEYWORDS.put("hospital", "医疗器械");
+        CATEGORY_KEYWORDS.put("clinic", "医疗器械");
+        CATEGORY_KEYWORDS.put("surgical", "医疗器械");
+        CATEGORY_KEYWORDS.put("dental", "医疗器械");
+        // 办公用品
+        CATEGORY_KEYWORDS.put("office", "办公用品");
+        CATEGORY_KEYWORDS.put("desk", "办公用品");
+        CATEGORY_KEYWORDS.put("chair", "办公用品");
+        CATEGORY_KEYWORDS.put("printer", "办公用品");
+        CATEGORY_KEYWORDS.put("scanner", "办公用品");
+    }
+
     private static final String SYSTEM_PROMPT = """
             你是一个跨境采购线索分析专家。请分析以下 Reddit 帖子，判断其是否为真实采购需求，并进行结构化打标。
 
@@ -60,7 +216,9 @@ public class AiTaggingService {
                - B：讨论采购痛点，存在潜在需求但不明确
                - 如果帖子完全不是采购需求（如纯吐槽、技术讨论、广告），grade 设为 "REJECT"
 
-            2. category（品类）：识别帖子中的产品品类，用中文简短描述，如"宠物用品"、"户外露营"、"3C数码"、"服装配饰"。无法识别填"未分类"
+            2. category（品类）：必须从以下固定列表中选择最接近的一个，用中文填写，不允许填列表以外的值，不允许填"未分类"或空值：
+               宠物用品、户外露营、3C数码、服装配饰、家居用品、美妆个护、母婴玩具、运动健身、汽车配件、工业五金、食品饮料、图书文具、珠宝饰品、电子产品、医疗器械、办公用品、其他
+               选择标准：根据帖子中提到的产品名称、行业关键词判断最接近的品类。如果帖子涉及多个品类，选择占比最大或最核心的那个。
 
             3. needType（需求类型）：FULL_AGENT(找全链路采购代理), FACTORY(找工厂代工), QC(找质检服务), LOGISTICS(找物流清关), SUPPLY_CHAIN(找供应链合作), CONSIDERING_AGENT(考虑找代理), BEGINNER(新手入门咨询)
 
@@ -71,7 +229,7 @@ public class AiTaggingService {
             6. score（采购意向评分）：0-100 分，分数越高采购意向越强
 
             请严格以 JSON 格式返回，不要包含任何其他文字：
-            {"grade":"S","category":"品类","needType":"FULL_AGENT","orderScale":"MEDIUM","region":"NORTH_AMERICA","score":85}
+            {"grade":"S","category":"宠物用品","needType":"FULL_AGENT","orderScale":"MEDIUM","region":"NORTH_AMERICA","score":85}
             """;
 
     /**
@@ -91,6 +249,15 @@ public class AiTaggingService {
                 return null;
             }
 
+            // 兜底处理：如果 AI 返回的品类为空或"未分类"，用标题关键词匹配
+            if (result.getCategory() == null || result.getCategory().isBlank()
+                    || "未分类".equals(result.getCategory()) || "unknown".equalsIgnoreCase(result.getCategory())) {
+                String fallback = fallbackCategory(post.title(), post.body());
+                log.warn("AI 品类识别为空/未分类，使用关键词兜底匹配: title={}, fallback={}",
+                        post.title().length() > 50 ? post.title().substring(0, 50) + "..." : post.title(), fallback);
+                result.setCategory(fallback);
+            }
+
             log.info("AI 打标完成: grade={}, category={}, score={}, title={}",
                     result.getGrade(), result.getCategory(), result.getScore(),
                     post.title().length() > 50 ? post.title().substring(0, 50) + "..." : post.title());
@@ -100,6 +267,33 @@ public class AiTaggingService {
             log.error("AI 打标失败: {}", e.getMessage());
             return null;
         }
+    }
+
+    /**
+     * 基于标题和正文关键词的品类兜底匹配
+     * @param title 帖子标题
+     * @param body 帖子正文
+     * @return 匹配到的品类，无匹配时返回"其他"
+     */
+    private String fallbackCategory(String title, String body) {
+        String text = ((title != null ? title : "") + " " + (body != null ? body : "")).toLowerCase();
+        Map<String, Integer> categoryCount = new HashMap<>();
+
+        for (Map.Entry<String, String> entry : CATEGORY_KEYWORDS.entrySet()) {
+            if (text.contains(entry.getKey())) {
+                categoryCount.merge(entry.getValue(), 1, Integer::sum);
+            }
+        }
+
+        if (categoryCount.isEmpty()) {
+            return "其他";
+        }
+
+        // 返回命中关键词最多的品类
+        return categoryCount.entrySet().stream()
+                .max(Map.Entry.comparingByValue())
+                .map(Map.Entry::getKey)
+                .orElse("其他");
     }
 
     private String buildUserPrompt(RedditCollector.RawPost post) {
@@ -146,7 +340,7 @@ public class AiTaggingService {
 
             TaggingResult taggingResult = new TaggingResult();
             taggingResult.setGrade(result.path("grade").asText("B"));
-            taggingResult.setCategory(result.path("category").asText("未分类"));
+            taggingResult.setCategory(result.path("category").asText(""));
             taggingResult.setNeedType(result.path("needType").asText("CONSIDERING_AGENT"));
             taggingResult.setOrderScale(result.path("orderScale").asText("UNKNOWN"));
             taggingResult.setRegion(result.path("region").asText("OTHER"));

@@ -12,6 +12,7 @@ public class LeadQueryRequest {
     private Region region;
     private NeedType needType;
     private String keyword;
+    private Boolean marked;
     private Integer page = 1;
     private Integer size = 20;
 }
