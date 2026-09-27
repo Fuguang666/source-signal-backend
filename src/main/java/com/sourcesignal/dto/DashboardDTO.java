@@ -15,8 +15,10 @@ import java.util.Map;
 public class DashboardDTO {
     /** 今日新信号数 */
     private Long todayNewLeads;
-    /** S 级高意向数 */
+    /** 今日 S 级高意向数 */
     private Long todaySGradeLeads;
+    /** 今日 A 级中意向数 */
+    private Long todayAGradeLeads;
     /** 线索总数 */
     private Long totalLeads;
     /** 未读线索数 */

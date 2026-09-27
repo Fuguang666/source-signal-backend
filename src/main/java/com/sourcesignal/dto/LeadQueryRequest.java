@@ -13,6 +13,7 @@ public class LeadQueryRequest {
     private NeedType needType;
     private String keyword;
     private Boolean marked;
+    private Boolean unread;
     private Integer page = 1;
     private Integer size = 20;
 }

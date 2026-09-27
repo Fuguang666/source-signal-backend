@@ -53,4 +53,25 @@ public class LeadController {
     public Result<List<LeadDTO>> getMarkedLeads() {
         return Result.success(leadService.getMarkedLeads());
     }
+
+    @Operation(summary = "获取未读线索数")
+    @GetMapping("/unread-count")
+    public Result<Map<String, Long>> getUnreadCount() {
+        long count = leadService.getUnreadCount();
+        return Result.success(Map.of("count", count));
+    }
+
+    @Operation(summary = "单条标记为已读")
+    @PostMapping("/{id}/read")
+    public Result<Void> markAsRead(@PathVariable Long id) {
+        leadService.markAsRead(id);
+        return Result.success();
+    }
+
+    @Operation(summary = "全部标记为已读")
+    @PostMapping("/read-all")
+    public Result<Map<String, Integer>> markAllAsRead() {
+        int count = leadService.markAllAsRead();
+        return Result.success(Map.of("count", count));
+    }
 }

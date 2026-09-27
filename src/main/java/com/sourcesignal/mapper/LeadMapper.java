@@ -21,6 +21,7 @@ public interface LeadMapper extends BaseMapper<Lead> {
      * 多条件筛选分页查询
      * 所有参数均可为 null（null 表示不限制该条件）
      * marked=true: 只看已标记; marked=false: 只看未标记（含无 UserLead 记录）
+     * unread=true: 只看未读（含无 UserLead 记录）; unread=false: 只看已读
      */
     @Select("<script>" +
             "SELECT l.* FROM procurement_lead l " +
@@ -33,6 +34,8 @@ public interface LeadMapper extends BaseMapper<Lead> {
             "<if test='keyword != null'> AND (LOWER(l.title) LIKE CONCAT('%', LOWER(#{keyword}), '%') OR LOWER(l.body) LIKE CONCAT('%', LOWER(#{keyword}), '%')) </if>" +
             "<if test='marked != null and marked'> AND ul.marked = 1 </if>" +
             "<if test='marked != null and !marked'> AND (ul.marked = 0 OR ul.id IS NULL) </if>" +
+            "<if test='unread != null and unread'> AND (ul.is_read = 0 OR ul.id IS NULL) </if>" +
+            "<if test='unread != null and !unread'> AND ul.is_read = 1 </if>" +
             "AND l.collected_at >= #{since} " +
             "ORDER BY l.collected_at DESC" +
             "</script>")
@@ -44,7 +47,15 @@ public interface LeadMapper extends BaseMapper<Lead> {
                                      @Param("needType") String needType,
                                      @Param("keyword") String keyword,
                                      @Param("marked") Boolean marked,
+                                     @Param("unread") Boolean unread,
                                      @Param("since") LocalDateTime since);
+
+    /** 统计用户未读线索数（is_read=0 或无 UserLead 记录） */
+    @Select("SELECT COUNT(*) FROM procurement_lead l " +
+            "LEFT JOIN user_lead ul ON ul.lead_id = l.id AND ul.user_id = #{userId} " +
+            "WHERE (ul.is_read = 0 OR ul.id IS NULL) " +
+            "AND l.collected_at >= #{since}")
+    long countUnread(@Param("userId") Long userId, @Param("since") LocalDateTime since);
 
     /** 统计指定时间之后采集的线索数 */
     @Select("SELECT COUNT(*) FROM procurement_lead WHERE collected_at >= #{since}")

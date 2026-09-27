@@ -57,6 +57,7 @@ public class DashboardService {
         // ===== 基础统计 =====
         long todayNew = leadMapper.countCollectedAfter(todayStart);
         long todaySGrade = leadMapper.countByGradeAndCollectedAfter(LeadGrade.S.name(), todayStart);
+        long todayAGrade = leadMapper.countByGradeAndCollectedAfter(LeadGrade.A.name(), todayStart);
         long totalLeads = leadMapper.selectCount(null);
         long readCount = userLeadMapper.countReadByUserId(userId);
         long unreadCount = Math.max(0, totalLeads - readCount);
@@ -148,6 +149,7 @@ public class DashboardService {
         return DashboardDTO.builder()
                 .todayNewLeads(todayNew)
                 .todaySGradeLeads(todaySGrade)
+                .todayAGradeLeads(todayAGrade)
                 .totalLeads(totalLeads)
                 .unreadCount(unreadCount)
                 .dailySampleLimit(dailySampleLimit)

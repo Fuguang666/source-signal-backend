@@ -54,7 +54,7 @@ public class LeadService {
         Page<Lead> page = new Page<>(pageNum, size);
         IPage<Lead> leadPage = leadMapper.selectPageByFilters(page,
                 userId, gradeStr, request.getCategory(), regionStr, needTypeStr,
-                request.getKeyword(), request.getMarked(), since);
+                request.getKeyword(), request.getMarked(), request.getUnread(), since);
 
         List<LeadDTO> dtoList = leadPage.getRecords().stream()
                 .map(lead -> toLeadDTO(lead, userId))
@@ -172,6 +172,75 @@ public class LeadService {
                 .filter(java.util.Objects::nonNull)
                 .map(lead -> toLeadDTO(lead, userId))
                 .collect(Collectors.toList());
+    }
+
+    /**
+     * 获取用户未读线索数
+     */
+    public long getUnreadCount() {
+        Long userId = currentUser.getCurrentUserId();
+        LocalDateTime since = permissionService.getHistorySince();
+        return leadMapper.countUnread(userId, since);
+    }
+
+    /**
+     * 单条标记为已读
+     */
+    @Transactional
+    public void markAsRead(Long leadId) {
+        Long userId = currentUser.getCurrentUserId();
+        UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                .eq(UserLead::getUserId, userId)
+                .eq(UserLead::getLeadId, leadId));
+        if (userLead == null) {
+            userLead = UserLead.builder()
+                    .userId(userId)
+                    .leadId(leadId)
+                    .marked(false)
+                    .isRead(true)
+                    .build();
+            userLeadMapper.insert(userLead);
+        } else if (!Boolean.TRUE.equals(userLead.getIsRead())) {
+            userLead.setIsRead(true);
+            userLeadMapper.updateById(userLead);
+        }
+    }
+
+    /**
+     * 全部标记为已读
+     */
+    @Transactional
+    public int markAllAsRead() {
+        Long userId = currentUser.getCurrentUserId();
+        LocalDateTime since = permissionService.getHistorySince();
+
+        // 查找所有未读线索（is_read=0 或无 UserLead 记录）
+        List<Lead> unreadLeads = leadMapper.selectList(new LambdaQueryWrapper<Lead>()
+                .ge(Lead::getCollectedAt, since)
+                .orderByDesc(Lead::getCollectedAt));
+
+        int count = 0;
+        for (Lead lead : unreadLeads) {
+            UserLead userLead = userLeadMapper.selectOne(new LambdaQueryWrapper<UserLead>()
+                    .eq(UserLead::getUserId, userId)
+                    .eq(UserLead::getLeadId, lead.getId()));
+            if (userLead == null) {
+                userLead = UserLead.builder()
+                        .userId(userId)
+                        .leadId(lead.getId())
+                        .marked(false)
+                        .isRead(true)
+                        .build();
+                userLeadMapper.insert(userLead);
+                count++;
+            } else if (!Boolean.TRUE.equals(userLead.getIsRead())) {
+                userLead.setIsRead(true);
+                userLeadMapper.updateById(userLead);
+                count++;
+            }
+        }
+        log.info("全部标记已读: userId={}, 标记数量={}", userId, count);
+        return count;
     }
 
     private LeadDTO toLeadDTO(Lead lead, Long userId) {
